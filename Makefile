@@ -3,7 +3,6 @@ all: simplifind
 
 debug: find.o
 	g++ -g -o simplifind find.o -Wall -Werror -Wextra
-
 	#All done!
 
 simplifind: find.o
