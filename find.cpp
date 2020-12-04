@@ -1,9 +1,9 @@
 #include <iostream>
-// #include <filesystem>
 #include <regex>
 #include <string>
 #include <vector>
-#include <boost/program_options>
+#include <boost/filesystem.hpp>
+#include <boost/program_options.hpp>
 /*
 find procedure:
     1. use boost to parse input flags
@@ -31,7 +31,7 @@ find procedure:
 using path = std::filesystem::path;
 using entry = std::filesystem::directory_entry;
 using dirit = std::filesystem::directory_iterator;
-using options = ?;
+// using options = ?;
 
 
 
