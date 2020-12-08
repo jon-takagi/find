@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
+#include <unistd.h>
+#include <sys/wait.h>
 /*
 find procedure:
     1. use boost to parse input flags
@@ -31,75 +33,126 @@ find procedure:
 
 */
 
-namespace po = boost::program_options;
-using path = std::filesystem::path;
-using entry = std::filesystem::directory_entry;
-using dirit = std::filesystem::directory_iterator;
+namespace fs = std::filesystem;
+
 // using options = ?;
+std::tuple<bool, std::vector<std::string>, std::vector<std::string>> parse_command_line(int argc, char** argv) {
+    int current_arg = 1;
+    bool follow_symlinks = 0;
+    std::vector<std::string> starting_points {};
+    std::string current_dir = ".";
+    if(argv[current_arg] == "-L") {
+        follow_symlinks = 1;
+        current_arg++;
+    } else {
+        follow_symlinks = 0;
+        current_arg++;
+    }
+    // std::cout << current_arg << ": " << argv[current_arg] << std::endl;
+    if(argv[current_arg][0] == '-') {
+        starting_points.push_back(current_dir);
+        current_arg++;
+    }
+    while (argv[current_arg][0] != '-') {
+        starting_points.push_back(std::string(argv[current_arg]));
+        current_arg++;
+    };
+    std::vector<std::string> expr;
+    while(current_arg < argc) {
+        std::string line(argv[current_arg]);
+        expr.push_back(line);
+        current_arg++
+    }
+    std::tuple<bool, std::list<std::string>, std::vector<std::string>> parsed_output = std::make_tuple(follow_symlinks, starting_points, expr);
+    return parsed_output;
+}
 
+/*
+void name(bool& passed, fs::path path) {};
+*/
 
+/*tests:
+- name (does it match the given pattern)
+- type (is the file of the given type)
+- mtime (file was last modified n days ago)
 
+actions:
+- print
+- exec
+*/
 // void do_simplifind(std::vector<path> &starting_points, options) {
 //
 // }
 //
-// void do_exec(std::string command, args) {
-//     /*
-//         Something like:
-//             1. fork
-//             2. if you're the parent, wait for the child, then return
-//                 if you're the child:
-//                     set up argc, argv
-//                     run exec
-//         execvpe?
-//     */
-//     int rc = fork();
-//     if(rc == 0) {
-//         // in the child
-//     } else {
-//         // in the parent
-//     }
-// }
+
+void do_simplifind(bool follow_symlinks, std::vector<std::string>& starting_points, std::vector<std::function<bool(fs::path)> >& instructions){
+    fs::directory_options option;
+    if (follow_symlinks) {
+        option = fs::directory_options::follow_directory_symlink;
+    } else {
+        option = fs::directory_options::none;
+    }
+    for (auto &start: starting_points.begin()) {
+        std::string root = start;
+        fs::path path_to_root(root);
+        fs::recursive_directory_iterator it(path_to_root, option);
+        for(auto &path: it) {
+            for (auto &instruction: instructions.begin()) {
+                if (!instruction(path)) {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/*
+if (print) {
+    std::cout << p.path() << std::endl;
+}
+if (exec) { //TODO: set up exec_command, these_exec_args (or pass them in). . .
+    std::vector<std::string> these_exec_args;
+    std::transform(std::begin(exec_args), std::end(exec_args), std::back_inserter(these_exec_args),
+        [](s){
+            rs = std::string(s);
+            std::string file_name = p.path().string();
+            for (size_t pos = rs.find("{}"); pos != std::string::npos; pos = rs.find("{}", pos)) {
+                rs.replace(pos, 2, file_name);
+                pos += file_name.size();
+            }
+            return rs;
+        }
+    );
+    do_exec(&exec_command, &these_exec_args);
+}
+*/
+
+void do_exec(std::string& command, std::vector<std::string>& args) { //execvp
+    /*
+        Something like:
+            1. fork
+            2. if you're the parent, wait for the child, then return
+                if you're the child:
+                    set up argv
+                    run exec
+        execvpe?
+    */
+    pid_t id = fork();
+    if(id == 0) {
+        std::vector<char *> c_strs;
+        std::transform(std::begin(args), std::end(args), std::back_inserter(c_strs), std::mem_fn(&std::string::c_str));
+        c_strs.push_back((char*) NULL);
+        execvp(command.c_str(), c_strs.data());
+    } else if (id < 0) {
+        cout << "Failed to start child process" << std::endl;
+        exit(-1);
+    } else {
+        waitpid(id);
+    }
+}
 
 int main(int argc, char ** argv) {
-    po::command_line_style::style_t style = po::command_line_style::style_t(
-        po::command_line_style::allow_long_disguise|
-        po::command_line_style::long_allow_next
-    );
-    po::options_description desc("Supported Options");
-    desc.add_options()
-        ("start", po::value<std::vector<std::string>>(), "the positions to start searching from")
-        ("name", po::value<std::string>(), "Base of file name (the path with the leading directories removed) matches shell pattern pattern. The metacharacters ('*', '?', and '[]') match a '.' at the start of the base name (this is a change in findutils-4.2.2; see section STANDARDS CONFORMANCE below). To ignore a directory and the files under it, use -prune; see an example in the description of -path. Braces are not recognised as being special, despite the fact that some shells including Bash imbue braces with a special meaning in shell patterns. The filename matching is performed with the use of the fnmatch(3) library function. Don't forget to enclose the pattern in quotes in order to protect it from expansion by the shell.")
-        ("mtime", po::value<int>(), "File's data was last modified n*24 hours ago. See the comments for -atime to understand how rounding affects the interpretation of file modification times.")
-        ("type", po::value<char>(), "File is of type c: \nb block (buffered) special\n c character (unbuffered) special\n d directory\n p named pipe (FIFO) \n f regular file \nl symbolic link; this is never true if the -L option or the -follow option is in effect, unless the symbolic link is broken. If you want to search for symbolic links when -L is in effect, use -xtype. \n s socket\nD door (Solaris)")
-        ("exec", po::value<std::string>(), "Execute command; true if 0 status is returned. All following arguments to find are taken to be arguments to the command until an argument consisting of ';' is encountered. The string '{}' is replaced by the current file name being processed everywhere it occurs in the arguments to the command, not just in arguments where it is alone, as in some versions of find. Both of these constructions might need to be escaped (with a '\') or quoted to protect them from expansion by the shell. See the EXAMPLES section for examples of the use of the -exec option. The specified command is run once for each matched file. The command is executed in the starting directory. There are unavoidable security problems surrounding use of the -exec action; you should use the -execdir option instead.")
-        ("L,L", po::bool_switch(), "Follow symbolic links")
-    ;
-    po::positional_options_description pd;
-    pd.add("start", -1);
-    po::variables_map vm;
-    po::store(po::command_line_parser(argc, argv).options(desc).style(style).positional(pd).run(), vm);
-    po::notify(vm);
-    if(vm.count("start")) {
-        std::vector<std::string> directories = vm["start"].as<std::vector<std::string>>();
-        std::for_each(directories.begin(), directories.end(), [](std::string n) { std::cout << n << ' '; });
-        std::cout << ".\n";
-    }
-    if(vm.count("name")) {
-        std::cout << "name set to: " << vm["name"].as<std::string>() << ".\n";
-    }
-    if(vm.count("mtime")) {
-        std::cout << "mtime set to: " << vm["mtime"].as<int>() << ".\n";
-    }
-    if(vm.count("type")) {
-        std::cout << "type set to: " << vm["type"].as<char>() << ".\n";
-    }
-    if(vm.count("exec")) {
-        std::cout << "exec set to: " << vm["exec"].as<std::string>() << ".\n";
-    }
-    if(vm.count("L")) {
-        std::cout << "L was set to: " << vm["L"].as<bool>() << ".\n";
-    }
-    std::cout << argc << " "  << argv << std::endl;
+    auto parsed_output = parse_command_line(argc, argv);
+    do_simplifind(std::get<0>(parsed_output), &std::get<1>(parsed_output), &std::get<2>(parsed_output));
     return 0;
 }

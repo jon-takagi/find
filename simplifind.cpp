@@ -10,6 +10,14 @@
 #include <sys/wait.h>
 #include <chrono>
 #include <stdlib.h>
+
+/*Global TODO:
+There are two issues stopping simplifind from compiling into a working file:
+    1. the 'const' issue inside do_exec
+    2. time point conversion issue in mtime
+    simplifind.cpp currently compiles, but does not work.
+*/
+
 /*
 find procedure:
     1. use boost to parse input flags
@@ -50,10 +58,13 @@ void do_exec(const std::string& command, std::vector<std::string>& args) { //exe
     */
     pid_t id = fork();
     if(id == 0) {
+        /*
         std::vector<char *> c_strs;
         //todo: fill c_strs with c_strings.
         char *const* exec_args = {args[0].c_str()};
         execvp(command.c_str(), exec_args);
+        */
+        std::cout << "I'm the child! " << command << args[0] << std::endl;
     } else if (id < 0) {
         std::cout << "Failed to start child process" << std::endl;
         exit(-1);
@@ -105,25 +116,25 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
 
             if (strcmp(argv[current_arg],"b")){
                 wanted = fs::file_type::block;
-            }
-            if (strcmp(argv[current_arg], "c")){
+            } else if (strcmp(argv[current_arg], "c")){
                 wanted = fs::file_type::character;
-            }
-            if (strcmp(argv[current_arg] , "d")){
+            } else if (strcmp(argv[current_arg] , "d")){
                 wanted = fs::file_type::directory;
-            }
-            if (strcmp(argv[current_arg] , "p")){
+            } else if (strcmp(argv[current_arg] , "p")){
                 wanted = fs::file_type::fifo;
-            }
-            if (strcmp(argv[current_arg] , "f")){
+            } else if (strcmp(argv[current_arg] , "f")){
                 wanted = fs::file_type::regular;
-            }
-            if (strcmp(argv[current_arg] , "l")){
+            } else if (strcmp(argv[current_arg] , "l")){
                 wanted = fs::file_type::symlink;
-            }
-            if (strcmp(argv[current_arg] , "s")){
+            } else if (strcmp(argv[current_arg] , "s")){
                 wanted = fs::file_type::socket;
+            } else {
+                //cry about it
+                //TODO: probably the wrong error message.
+                std::cout<<"Bad argument passed to -type" << std::endl;
+                exit(1);
             }
+
             std::function<bool(fs::path)> func = [=](fs::path path) {
                 if(follow_symlinks){
                     return wanted == fs::symlink_status(path).type();
@@ -137,8 +148,25 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
             current_arg++;
             int age = atoi(argv[current_arg]);
             std::function<bool(fs::path)> func = [=](fs::path path) {
-                auto now = std::chrono::system_clock::now();
-                return (now - fs::last_write_time(path)).count() / 86400 == age;
+                /*
+                I think I know what's going on.  A time_point is a clock (with an epoch reference),
+                    and time since the epoch.  In order to make a time_point, therefore, we need a clock.
+                fs::last_write_time builds a time_point from a clock called std::filesystem::__file_clock.
+                This clock is different from std::chrono::steady_clock, so if I build a now time point from
+                that, I won't be able to compare it to the write time without c++20 operations (conversion
+                of time points between clocks).  So, I need to build now from the file clock.
+                    It type checks!  
+                */
+
+                //TODO: not this
+                auto file_time = fs::last_write_time(path);
+                auto now = std::filesystem::__file_clock::now();
+                return (now - file_time).count() / 86400 == age;
+                // if (path.string() == "hi" && age) {
+                //     return true;
+                // } else {
+                //     return false;
+                // }
             };
             expr.push_back(func);
         }
