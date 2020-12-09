@@ -13,9 +13,7 @@
 
 /*Global TODO:
 There are two issues stopping simplifind from compiling into a working file:
-    1. the 'const' issue inside do_exec
-    2. time point conversion issue in mtime
-    simplifind.cpp currently compiles, but does not work.
+    We now have bugs in parse_command_line, but it compiles and runs (for some inputs)
 */
 
 /*
@@ -58,13 +56,15 @@ void do_exec(const std::string& command, std::vector<std::string>& args) { //exe
     */
     pid_t id = fork();
     if(id == 0) {
-        /*
+
         std::vector<char *> c_strs;
-        //todo: fill c_strs with c_strings.
-        char *const* exec_args = {args[0].c_str()};
-        execvp(command.c_str(), exec_args);
-        */
-        std::cout << "I'm the child! " << command << args[0] << std::endl;
+        for (std::string s: args) {
+            c_strs.push_back((char*) s.c_str());
+        }
+        c_strs.push_back((char*) NULL);
+        execvp(command.c_str(), c_strs.data());
+
+        //std::cout << "I'm the child! " << command << args[0] << std::endl;
     } else if (id < 0) {
         std::cout << "Failed to start child process" << std::endl;
         exit(-1);
@@ -74,6 +74,7 @@ void do_exec(const std::string& command, std::vector<std::string>& args) { //exe
 }
 // using options = ?;
 std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parse_command_line(int argc, char** argv) {
+    std::cout<<"starting parse_command_line\n";
     int current_arg = 1;
     bool follow_symlinks = 0;
     std::vector<std::string> starting_points {};
@@ -84,25 +85,32 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
     const char* mtime = "-mtime";
     const char* exec = "-exec";
     const char* print = "-print";
-    if(strcmp(argv[current_arg],"-L")) {
+    std::cout<<"checking symlink options\n";
+    if(!strcmp(argv[current_arg],"-L")) {
+        std::cout<<"following symlinks\n";
         follow_symlinks = 1;
         current_arg++;
     } else {
+        std::cout<<"not following symlinks\n";
         follow_symlinks = 0;
-        current_arg++;
     }
+    std::cout<<"checking for starting points\n";
     // std::cout << current_arg << ": " << argv[current_arg] << std::endl;
     if(argv[current_arg][0] == '-') {
+        std::cout<<"no starting points specified; using default\n";
         starting_points.push_back(current_dir);
-        current_arg++;
     }
     while (argv[current_arg][0] != '-') {
+        std::cout<<"non-default starting points found\n";
         starting_points.push_back(std::string(argv[current_arg]));
         current_arg++;
     };
-
+    std::cout<<"now entering expression_parsing loop\n";
     while(current_arg < argc) {
-        if(strcmp(argv[current_arg], name)) {
+        std::cout<<"in expression parsing loop\n";
+        std::cout<<"checking name\n";
+        if(!strcmp(argv[current_arg], name)) {
+            std::cout<<"doing name\n";
             current_arg++;
             std::regex pattern(argv[current_arg]);
             std::function<bool(fs::path)> func = [=](fs::path path) {
@@ -110,23 +118,25 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
             };
             expr.push_back(func);
         }
-        if(strcmp(argv[current_arg], type)) {
+        std::cout<<"checking type\n";
+        if(!strcmp(argv[current_arg], type)) {
+            std::cout<<"doing type\n";
             current_arg++;
             fs::file_type wanted;
 
-            if (strcmp(argv[current_arg],"b")){
+            if (!strcmp(argv[current_arg],"b")){
                 wanted = fs::file_type::block;
-            } else if (strcmp(argv[current_arg], "c")){
+            } else if (!strcmp(argv[current_arg], "c")){
                 wanted = fs::file_type::character;
-            } else if (strcmp(argv[current_arg] , "d")){
+            } else if (!strcmp(argv[current_arg] , "d")){
                 wanted = fs::file_type::directory;
-            } else if (strcmp(argv[current_arg] , "p")){
+            } else if (!strcmp(argv[current_arg] , "p")){
                 wanted = fs::file_type::fifo;
-            } else if (strcmp(argv[current_arg] , "f")){
+            } else if (!strcmp(argv[current_arg] , "f")){
                 wanted = fs::file_type::regular;
-            } else if (strcmp(argv[current_arg] , "l")){
+            } else if (!strcmp(argv[current_arg] , "l")){
                 wanted = fs::file_type::symlink;
-            } else if (strcmp(argv[current_arg] , "s")){
+            } else if (!strcmp(argv[current_arg] , "s")){
                 wanted = fs::file_type::socket;
             } else {
                 //cry about it
@@ -144,7 +154,9 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
             };
             expr.push_back(func);
         }
-        if(strcmp(argv[current_arg], mtime)) {
+        std::cout<<"checking mtime\n";
+        if(!strcmp(argv[current_arg], mtime)) {
+            std::cout<<"doing mtime\n";
             current_arg++;
             int age = atoi(argv[current_arg]);
             std::function<bool(fs::path)> func = [=](fs::path path) {
@@ -155,7 +167,7 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
                 This clock is different from std::chrono::steady_clock, so if I build a now time point from
                 that, I won't be able to compare it to the write time without c++20 operations (conversion
                 of time points between clocks).  So, I need to build now from the file clock.
-                    It type checks!  
+                    It type checks!
                 */
 
                 //TODO: not this
@@ -170,12 +182,13 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
             };
             expr.push_back(func);
         }
-        if(strcmp(argv[current_arg], exec)) {
+        std::cout<<"checking exec\n";
+        if(!strcmp(argv[current_arg], exec)) {
+            std::cout<<"doing exec\n";
             current_arg++;
             std::string exec_command(argv[current_arg]);
-            current_arg++;
             std::vector<std::string> raw_exec_args;
-            while (!strcmp(argv[current_arg], ";")) {
+            while (strcmp(argv[current_arg], ";")) {
                 raw_exec_args.push_back(std::string(argv[current_arg]));
                 current_arg++;
             }
@@ -197,12 +210,15 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
             };
             expr.push_back(func);
         }
+        std::cout<<"checking print\n";
         if(strcmp(argv[current_arg], print)) {
-            std::function<bool(fs::path)> func = [](fs::path path) { std::cout << path << std::endl; return 1;};
+            std::cout<<"doing print\n";
+            std::function<bool(fs::path)> func = [](fs::path path) { std::cout << path.string() << std::endl; return 1;};
             expr.push_back(func);
         }
         current_arg++;
     }
+    std::cout<<"outside of arg_parsing loop\n";
     std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parsed_output = std::make_tuple(follow_symlinks, starting_points, expr);
     return parsed_output;
 }
