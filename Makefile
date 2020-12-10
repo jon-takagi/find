@@ -1,17 +1,9 @@
 all: simplifind
 	#All done!
 
-debug: find.o
-	g++ -g -o simplifind find.o -Wall -Werror -Wextra
-	#All done!
-
-simplifind: find.o
-	g++ -o simplifind find.o -O3 -Wall -Werror -Wextra
+simplifind:
+	g++-9 -o simplifind.bin simplifind.cpp -O3 -Wall -Werror -Wextra --std=c++17 -lstdc++fs
 po_example:
-	g++ -o po_example po_example.cpp -O3 -Wall -Werror -Wextra -I /usr/local/boost_1_61_0 ../lib/libboost_program_options.a
-
-find.o:
-	g++ -g -c find.cpp -Wall -Werror -Wextra  -I /usr/local/boost_1_61_0 ../lib/libboost_program_options.a ../lib/libboost_filesystem.a
-
+	g++-9 -o po_example.bin po_example.cpp -O3 -Wall -Werror -Wextra --std=c++17 -lstdc++fs
 clean:
-	rm *.o
+	rm *.bin

@@ -3,8 +3,6 @@
 #include <string>
 #include <vector>
 #include <filesystem>
-#include <boost/filesystem.hpp>
-#include <boost/program_options.hpp>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -44,16 +42,7 @@ find procedure:
 
 namespace fs = std::filesystem;
 
-void do_exec(const std::string& command, std::vector<std::string>& args) { //execvp
-    /*
-        Something like:
-            1. fork
-            2. if you're the parent, wait for the child, then return
-                if you're the child:
-                    set up argv
-                    run exec
-        execvpe?
-    */
+void do_exec(const std::string& command, std::vector<std::string>& args) {
     pid_t id = fork();
     if(id == 0) {
 
@@ -66,62 +55,91 @@ void do_exec(const std::string& command, std::vector<std::string>& args) { //exe
 
         //std::cout << "I'm the child! " << command << args[0] << std::endl;
     } else if (id < 0) {
-        std::cout << "Failed to start child process" << std::endl;
+        // std::cout << "Failed to start child process" << std::endl;
         exit(-1);
     } else {
         waitpid(-1, &id, 0);
     }
 }
 // using options = ?;
-std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parse_command_line(int argc, char** argv) {
-    std::cout<<"starting parse_command_line\n";
+std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parse_command_line(int argc, char** argv) {
+    // std::cout<<"starting parse_command_line\n";
     int current_arg = 1;
     bool follow_symlinks = 0;
+    bool has_action = 0;
     std::vector<std::string> starting_points {};
     std::vector<std::function<bool(fs::path)>> expr = {};
     std::string current_dir = ".";
+
+    if(argc == 1) {
+        std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parsed_output = std::make_tuple(
+            follow_symlinks,
+            has_action,
+            starting_points,
+            expr
+        );
+    }
+
     const char* name = "-name";
     const char* type = "-type";
     const char* mtime = "-mtime";
     const char* exec = "-exec";
     const char* print = "-print";
-    std::cout<<"checking symlink options\n";
+    // std::cout<<"checking symlink options\n";
     if(!strcmp(argv[current_arg],"-L")) {
-        std::cout<<"following symlinks\n";
+        // std::cout<<"following symlinks\n";
         follow_symlinks = 1;
         current_arg++;
     } else {
-        std::cout<<"not following symlinks\n";
+        // std::cout<<"not following symlinks\n";
         follow_symlinks = 0;
     }
-    std::cout<<"checking for starting points\n";
+    // std::cout<<"checking for starting points\n";
     // std::cout << current_arg << ": " << argv[current_arg] << std::endl;
     if(argv[current_arg][0] == '-') {
-        std::cout<<"no starting points specified; using default\n";
+        // std::cout<<"no starting points specified; using default\n";
         starting_points.push_back(current_dir);
     }
-    while (argv[current_arg][0] != '-') {
-        std::cout<<"non-default starting points found\n";
+    while (current_arg < argc && argv[current_arg][0] != '-') {
+        // std::cout<<"non-default starting points found\n";
         starting_points.push_back(std::string(argv[current_arg]));
         current_arg++;
     };
-    std::cout<<"now entering expression_parsing loop\n";
+    // std::cout<<"now entering expression_parsing loop\n";
+
     while(current_arg < argc) {
-        std::cout<<"in expression parsing loop\n";
-        std::cout<<"checking name\n";
-        if(!strcmp(argv[current_arg], name)) {
-            std::cout<<"doing name\n";
+        if (*(argv[current_arg]) != '-') {
+            // for (int i = 0; i < argc; i++) {
+            //     std::cout<<argv[i];
+            // }
+            std::cout<<"find: paths must precede expression: `" << argv[current_arg] << "'" << std::endl;
+            std::cout<<"find: possible unquoted pattern after predicate `-name'?" << std::endl; //TODO: will this give a different result for different predicates?
+            exit(1);
+        }
+        // std::cout<<"in expression parsing loop\n";
+        // std::cout<<"checking name\n";
+        else if(!strcmp(argv[current_arg], name)) {
+            // std::cout<<"doing name\n";
             current_arg++;
-            std::regex pattern(argv[current_arg]);
+            if (current_arg >= argc) {
+                std::cout << "find: missing argument to `-name'" << std::endl;
+                exit(1);
+            }
+            std::regex pattern(argv[current_arg], std::regex::grep);
             std::function<bool(fs::path)> func = [=](fs::path path) {
-                return std::regex_search(path.filename().c_str(), pattern);
+                // std::cout << "testing regex" << std::endl;
+                return std::regex_match(path.filename().c_str(), pattern);
             };
             expr.push_back(func);
         }
-        std::cout<<"checking type\n";
-        if(!strcmp(argv[current_arg], type)) {
-            std::cout<<"doing type\n";
+        // std::cout<<"checking type\n";
+        else if(!strcmp(argv[current_arg], type)) {
+            // std::cout<<"doing type\n";
             current_arg++;
+            if (current_arg >= argc) {
+                std::cout << "find: missing argument to `-type'" << std::endl;
+                exit(1);
+            }
             fs::file_type wanted;
 
             if (!strcmp(argv[current_arg],"b")){
@@ -140,8 +158,7 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
                 wanted = fs::file_type::socket;
             } else {
                 //cry about it
-                //TODO: probably the wrong error message.
-                std::cout<<"Bad argument passed to -type" << std::endl;
+                std::cout<<"find: Unknown argument to -type: " << *(argv[current_arg]) << std::endl;
                 exit(1);
             }
 
@@ -154,11 +171,22 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
             };
             expr.push_back(func);
         }
-        std::cout<<"checking mtime\n";
-        if(!strcmp(argv[current_arg], mtime)) {
-            std::cout<<"doing mtime\n";
+        // std::cout<<"checking mtime\n";
+        else if(!strcmp(argv[current_arg], mtime)) {
+            // std::cout<<"doing mtime\n";
             current_arg++;
-            int age = atoi(argv[current_arg]);
+            if (current_arg >= argc) {
+                std::cout << "find: missing argument to `-name'" << std::endl;
+                exit(1);
+            }
+            int age = 0;
+            try {
+                age = std::stoi(argv[current_arg]);
+            } catch (...) {
+                std::cout<<"find: Unknown argument to -mtime: " << *(argv[current_arg]) << std::endl;
+                exit(1);
+            }
+            // find: invalid argument `<arg>' to `-mtimte'
             std::function<bool(fs::path)> func = [=](fs::path path) {
                 /*
                 I think I know what's going on.  A time_point is a clock (with an epoch reference),
@@ -169,22 +197,16 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
                 of time points between clocks).  So, I need to build now from the file clock.
                     It type checks!
                 */
-
-                //TODO: not this
                 auto file_time = fs::last_write_time(path);
                 auto now = std::filesystem::__file_clock::now();
                 return (now - file_time).count() / 86400 == age;
-                // if (path.string() == "hi" && age) {
-                //     return true;
-                // } else {
-                //     return false;
-                // }
             };
             expr.push_back(func);
         }
-        std::cout<<"checking exec\n";
-        if(!strcmp(argv[current_arg], exec)) {
-            std::cout<<"doing exec\n";
+        // std::cout<<"checking exec\n";
+        else if(!strcmp(argv[current_arg], exec)) {
+            // std::cout<<"doing exec\n";
+            has_action = 1;
             current_arg++;
             std::string exec_command(argv[current_arg]);
             std::vector<std::string> raw_exec_args;
@@ -210,16 +232,22 @@ std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::pa
             };
             expr.push_back(func);
         }
-        std::cout<<"checking print\n";
-        if(strcmp(argv[current_arg], print)) {
-            std::cout<<"doing print\n";
+        // std::cout<<"checking print\n";
+        else if(!strcmp(argv[current_arg], print)) {
+            // std::cout<<"doing print\n";
+            has_action = 1;
             std::function<bool(fs::path)> func = [](fs::path path) { std::cout << path.string() << std::endl; return 1;};
             expr.push_back(func);
         }
+        else {
+            std::cout << "find: unknown predicate `" << argv[current_arg]<<"'" << std::endl;
+            exit(1);
+
+        }
         current_arg++;
     }
-    std::cout<<"outside of arg_parsing loop\n";
-    std::tuple<bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parsed_output = std::make_tuple(follow_symlinks, starting_points, expr);
+    // std::cout<<"outside of arg_parsing loop\n";
+    std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parsed_output = std::make_tuple(follow_symlinks, has_action, starting_points, expr);
     return parsed_output;
 }
 
@@ -241,21 +269,45 @@ actions:
 // }
 //
 
-void do_simplifind(bool follow_symlinks, std::vector<std::string>& starting_points, std::vector<std::function<bool(fs::path)> >& instructions){
+void do_simplifind(bool follow_symlinks, bool has_action,
+                    std::vector<std::string>& starting_points,
+                    std::vector<std::function<bool(fs::path)> >& instructions){
     fs::directory_options option;
     if (follow_symlinks) {
         option = fs::directory_options::follow_directory_symlink;
     } else {
         option = fs::directory_options::none;
     }
+    for(std::string s : starting_points) {
+        std::cout << s << std::endl;
+    }
+    /*
+    TODO: correct our handling of the '.' and '..' special directories.
+        std::filesystem recursive_directory_iterators don't see them, so we will
+        need to find a way to correct that (in the cases where find sees those
+        directories, which seem to be limited)
+
+    find .. -name .. should find ..
+    find -name . should find .
+    these are the only two cases where it finds these directories
+    */
     for (auto &start: starting_points) {
         std::string root = start;
         fs::path path_to_root(root);
-        fs::recursive_directory_iterator it(path_to_root, option);
-        for(auto &path: it) {
-            for (auto &instruction: instructions) {
-                if (!instruction(path)) {
-                    break;
+        if(!fs::exists(root)) {
+            std::cout << "find: '" << root << "': No such file or directory" << std::endl;
+        } else {
+            fs::recursive_directory_iterator it(path_to_root, option);
+            for(auto &path: it) {
+                bool passes_tests = true;
+                for (auto &instruction: instructions) {
+                    if (!instruction(path)) {
+                        passes_tests = false;
+                        break;
+                    }
+                }
+                if(!has_action && passes_tests) {
+                    std::cout << path << std::endl;
                 }
             }
         }
@@ -287,8 +339,9 @@ if (exec) { //TODO: set up exec_command, these_exec_args (or pass them in). . .
 int main(int argc, char ** argv) {
     auto parsed_output = parse_command_line(argc, argv);
     bool follow_symlinks = std::get<0>(parsed_output);
-    std::vector<std::string> roots = std::get<1>(parsed_output);
-    std::vector<std::function<bool(fs::path)>> exprs = std::get<2>(parsed_output);
-    do_simplifind(follow_symlinks, roots, exprs);
+    bool has_action = std::get<1>(parsed_output);
+    std::vector<std::string> roots = std::get<2>(parsed_output);
+    std::vector<std::function<bool(fs::path)>> exprs = std::get<3>(parsed_output);
+    do_simplifind(follow_symlinks, has_action, roots, exprs);
     return 0;
 }

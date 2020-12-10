@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-g++-8 -O3 -Werror -Wall -Wextra -pedantic  -std=c++17 myfind.cc -o test_find -lstdc++fs || exit
+g++-9 -O3 -Werror -Wall -Wextra -pedantic  -std=c++17 simplifind.cpp -o test_find -lstdc++fs || exit
 
 for bin in find ./test_find
 do
@@ -13,6 +13,7 @@ do
   ${bin} tstdir tstdir &> ${bin}.out/one-arg-dup.out
   ${bin} tstdir tstdir/dir1 &> ${bin}.out/two-args.out
   ${bin} nodir &> ${bin}.out/nodir.out
+  ${bin} -name &> ${bin}.out/name.out
 done
 
 ###############

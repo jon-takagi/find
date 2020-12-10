@@ -1,0 +1,11 @@
+tstdir
+tstdir/a
+tstdir/a/file2.txt
+tstdir/a/file1.txt
+tstdir/a/file1.out
+tstdir/a/file1.cpp
+tstdir/b
+tstdir/b/doc2.html
+tstdir/b/doc1.txt
+tstdir/b/doc2.txt
+find: ‘tstdir/dir1’: No such file or directory
