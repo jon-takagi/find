@@ -8,7 +8,7 @@
 #include <sys/wait.h>
 #include <chrono>
 #include <stdlib.h>
-
+#include <fnmatch.h>
 /*Global TODO:
 There are two issues stopping simplifind from compiling into a working file:
     We now have bugs in parse_command_line, but it compiles and runs (for some inputs)
@@ -42,7 +42,8 @@ find procedure:
 
 namespace fs = std::filesystem;
 
-void do_exec(const std::string& command, std::vector<std::string>& args) {
+bool do_exec(const std::string& command, std::vector<std::string>& args) {
+    int wstatus = 0;
     pid_t id = fork();
     if(id == 0) {
 
@@ -58,8 +59,9 @@ void do_exec(const std::string& command, std::vector<std::string>& args) {
         // std::cout << "Failed to start child process" << std::endl;
         exit(-1);
     } else {
-        waitpid(-1, &id, 0);
+        waitpid(id, &wstatus, 0);
     }
+    return (wstatus == 0);
 }
 // using options = ?;
 std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parse_command_line(int argc, char** argv) {
@@ -70,14 +72,16 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
     std::vector<std::string> starting_points {};
     std::vector<std::function<bool(fs::path)>> expr = {};
     std::string current_dir = ".";
-
+    // std::cout << "finished setting up return values"
     if(argc == 1) {
+        starting_points.push_back(current_dir);
         std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(fs::path)>>> parsed_output = std::make_tuple(
             follow_symlinks,
             has_action,
             starting_points,
             expr
         );
+        return parsed_output;
     }
 
     const char* name = "-name";
@@ -125,10 +129,15 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
                 std::cout << "find: missing argument to `-name'" << std::endl;
                 exit(1);
             }
-            std::regex pattern(argv[current_arg], std::regex::grep);
+            // std::cout << "regexing for :" << argv[current_arg] << std::endl;
+
+            // std::regex pattern(argv[current_arg], std::regex_constants::awk);
+            // std::cout << "supV2" << std::endl;
+            std::string pattern(argv[current_arg]);
             std::function<bool(fs::path)> func = [=](fs::path path) {
                 // std::cout << "testing regex" << std::endl;
-                return std::regex_match(path.filename().c_str(), pattern);
+                return !fnmatch(pattern.c_str(), path.filename().c_str(), 0);
+                // return std::regex_match(path.filename().c_str(), pattern);
             };
             expr.push_back(func);
         }
@@ -192,13 +201,15 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
                 I think I know what's going on.  A time_point is a clock (with an epoch reference),
                     and time since the epoch.  In order to make a time_point, therefore, we need a clock.
                 fs::last_write_time builds a time_point from a clock called std::filesystem::__file_clock.
-                This clock is different from std::chrono::steady_clock, so if I build a now time point from
-                that, I won't be able to compare it to the write time without c++20 operations (conversion
-                of time points between clocks).  So, I need to build now from the file clock.
+                This clock is implementation defined (and in g++-9, not the same as std::chrono::system_clock).
+                Operations between time points of different clocks aren't defined, and converting a time_point to another
+                clock isn't defined (it's defined in C++20, but not C++17).
+
+                Using fs::file_time_type::clock uses whatever clock last_write_time uses.
                     It type checks!
                 */
                 auto file_time = fs::last_write_time(path);
-                auto now = std::filesystem::__file_clock::now();
+                auto now = fs::file_time_type::clock::now();
                 return (now - file_time).count() / 86400 == age;
             };
             expr.push_back(func);
@@ -208,11 +219,24 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
             // std::cout<<"doing exec\n";
             has_action = 1;
             current_arg++;
+
+            if (current_arg >= argc) {
+                std::cout << "find: missing argument to `-exec'" << std::endl;
+                exit(1);
+            }
+
             std::string exec_command(argv[current_arg]);
             std::vector<std::string> raw_exec_args;
-            while (strcmp(argv[current_arg], ";")) {
+            // TODO: Possible segfault here if no \; is present in the inputs!
+            //  Need to find a way to detect that and crash gracefully with the
+            //  message: "find: missing argument to `-exec'"
+            while (current_arg < argc && strcmp(argv[current_arg], ";")) {
                 raw_exec_args.push_back(std::string(argv[current_arg]));
                 current_arg++;
+            }
+            if (current_arg >= argc) {
+                std::cout << "find: missing argument to `-exec'" << std::endl;
+                exit(1);
             }
             std::function<bool(fs::path)> func = [=](fs::path path) {
                 std::vector<std::string> these_exec_args;
@@ -227,8 +251,7 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
                         return rs;
                     }
                 );
-                do_exec(exec_command, these_exec_args);
-                return 1;
+                return do_exec(exec_command, these_exec_args);
             };
             expr.push_back(func);
         }
@@ -242,7 +265,6 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
         else {
             std::cout << "find: unknown predicate `" << argv[current_arg]<<"'" << std::endl;
             exit(1);
-
         }
         current_arg++;
     }
@@ -278,9 +300,9 @@ void do_simplifind(bool follow_symlinks, bool has_action,
     } else {
         option = fs::directory_options::none;
     }
-    for(std::string s : starting_points) {
-        std::cout << s << std::endl;
-    }
+    // for(std::string s : starting_points) {
+    //     std::cout << s << std::endl;
+    // }
     /*
     TODO: correct our handling of the '.' and '..' special directories.
         std::filesystem recursive_directory_iterators don't see them, so we will
@@ -291,14 +313,20 @@ void do_simplifind(bool follow_symlinks, bool has_action,
     find -name . should find .
     these are the only two cases where it finds these directories
     */
+    // std::cout << "has_action: " << has_action << std::endl;
     for (auto &start: starting_points) {
         std::string root = start;
         fs::path path_to_root(root);
         if(!fs::exists(root)) {
-            std::cout << "find: '" << root << "': No such file or directory" << std::endl;
+            std::cout << "find: ‘" << path_to_root.string() << "’: No such file or directory" << std::endl;
         } else {
             fs::recursive_directory_iterator it(path_to_root, option);
+            std::vector<fs::path> paths;
+            paths.push_back(path_to_root);
             for(auto &path: it) {
+                paths.push_back(path.path());
+            }
+            for(auto &path: paths) {
                 bool passes_tests = true;
                 for (auto &instruction: instructions) {
                     if (!instruction(path)) {
@@ -307,7 +335,7 @@ void do_simplifind(bool follow_symlinks, bool has_action,
                     }
                 }
                 if(!has_action && passes_tests) {
-                    std::cout << path << std::endl;
+                    std::cout << path.string() << std::endl;
                 }
             }
         }
