@@ -46,13 +46,11 @@ bool do_exec(const std::string& command, std::vector<std::string>& args) {
     int wstatus = 0;
     pid_t id = fork();
     if(id == 0) {
-
-        std::vector<char *> c_strs;
-        for (std::string s: args) {
-            c_strs.push_back((char*) s.c_str());
+        char** c_strs = (char**) calloc(args.size() + 1, sizeof(char*));
+        for (long unsigned int i = 0; i < args.size(); i++) {
+            c_strs[i] = (char*) args[i].c_str();
         }
-        c_strs.push_back((char*) NULL);
-        execvp(command.c_str(), c_strs.data());
+        execvp(command.c_str(), c_strs);
 
         //std::cout << "I'm the child! " << command << args[0] << std::endl;
     } else if (id < 0) {
@@ -192,7 +190,7 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
             try {
                 age = std::stoi(argv[current_arg]);
             } catch (...) {
-                std::cout<<"find: Unknown argument to -mtime: " << *(argv[current_arg]) << std::endl;
+                std::cout<<"find: invalid argument `" << argv[current_arg] << "' to `-mtime'" << std::endl;
                 exit(1);
             }
             // find: invalid argument `<arg>' to `-mtimte'
@@ -210,7 +208,7 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
                 */
                 auto file_time = fs::last_write_time(path);
                 auto now = fs::file_time_type::clock::now();
-                return (now - file_time).count() / 86400 == age;
+                return (now - file_time).count() / 86400 > age;
             };
             expr.push_back(func);
         }
@@ -234,6 +232,8 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
                 raw_exec_args.push_back(std::string(argv[current_arg]));
                 current_arg++;
             }
+            // for (auto s: raw_exec_args) {std::cout << s <<",";}
+            // std::cout << std::endl;
             if (current_arg >= argc) {
                 std::cout << "find: missing argument to `-exec'" << std::endl;
                 exit(1);
@@ -248,9 +248,13 @@ std::tuple<bool, bool, std::vector<std::string>, std::vector<std::function<bool(
                             rs.replace(pos, 2, file_name);
                             pos += file_name.size();
                         }
+
+                        // std::cout << std::endl << rs << std::endl << std::endl;
                         return rs;
                     }
                 );
+                // for (auto s: these_exec_args) {std::cout << s <<",";}
+                // std::cout << std::endl;
                 return do_exec(exec_command, these_exec_args);
             };
             expr.push_back(func);
@@ -327,6 +331,7 @@ void do_simplifind(bool follow_symlinks, bool has_action,
                 paths.push_back(path.path());
             }
             for(auto &path: paths) {
+                // std::cout << path.string() << std::endl;
                 bool passes_tests = true;
                 for (auto &instruction: instructions) {
                     if (!instruction(path)) {
