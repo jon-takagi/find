@@ -1,0 +1,4 @@
+cat: tstdir: Is a directory
+these are contents
+cat: tstdir/a: Is a directory
+cat: tstdir/b: Is a directory

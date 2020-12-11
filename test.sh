@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-g++-8 -O3 -Werror -Wall -Wextra -pedantic  -std=c++17 simplifind.cpp -o test_find -lstdc++fs || exit
+g++-8 -O3 -Werror -Wall -Wextra -pedantic  -std=c++17 myfind.cc -o test_find -lstdc++fs || exit
 
 for bin in find /vagrant/os/find/test_find
 do

@@ -1,0 +1,8 @@
+tstdir/blah.blah: ASCII text
+tstdir/a/file2.txt: empty
+tstdir/a/file1.txt: empty
+tstdir/a/file1.cpp: empty
+tstdir/README.md: empty
+tstdir/b/doc2.html: empty
+tstdir/b/doc1.txt: empty
+tstdir/b/doc2.txt: empty

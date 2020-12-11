@@ -1,0 +1,11 @@
+tstdir
+tstdir/blah.blah
+tstdir/a
+tstdir/a/file2.txt
+tstdir/a/file1.txt
+tstdir/a/file1.cpp
+tstdir/README.md
+tstdir/b
+tstdir/b/doc2.html
+tstdir/b/doc1.txt
+tstdir/b/doc2.txt
